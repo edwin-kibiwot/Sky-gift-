@@ -148,6 +148,8 @@
     display: none;
     user-select: none;
     line-height: 1.3;
+    white-space: normal;
+    cursor: pointer;
   }
   #message span {
     display: block;
@@ -157,6 +159,24 @@
     color: #a3f7a3;
     cursor: pointer;
     text-decoration: underline;
+  }
+
+  /* Video overlay */
+  #videoOverlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background-color: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  #videoOverlay video {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 12px;
+    box-shadow: 0 0 15px rgba(255,255,255,0.6);
+    cursor: pointer;
   }
 
   /* Footer */
@@ -221,6 +241,14 @@
   &copy; 2025 Edwin Kibiwot
 </footer>
 
+<!-- Video overlay -->
+<div id="videoOverlay" role="region" aria-label="Game video overlay">
+  <video id="gameVideo" muted>
+    <source src="video1.mp4" type="video/mp4" />
+    Your browser does not support the video tag.
+  </video>
+</div>
+
 <script>
   (() => {
     const game = document.getElementById('game');
@@ -230,6 +258,8 @@
     const message = document.getElementById('message');
     const pauseBtn = document.getElementById('pauseBtn');
     const muteBtn = document.getElementById('muteBtn');
+    const videoOverlay = document.getElementById('videoOverlay');
+    const gameVideo = document.getElementById('gameVideo');
 
     let gameWidth, gameHeight;
     function resizeGame() {
@@ -250,6 +280,7 @@
 
     // Track pointer movements (mouse/touch)
     function handlePointer(e) {
+      if (isVideoPlaying || paused || gameOver) return;
       let clientX;
       if(e.touches) {
         clientX = e.touches[0].clientX;
@@ -284,6 +315,7 @@
     let paused = false;
     let doublePointsActive = false;
     let doublePointsTimeout;
+    let isVideoPlaying = false;
 
     // Sounds
     const sounds = {
@@ -327,13 +359,12 @@
     }
 
     function createFruit() {
-      if(gameOver || paused) return;
+      if(gameOver || paused || isVideoPlaying) return;
 
       // 15% chance to spawn a powerup instead of fruit
       const spawnPowerup = Math.random() < 0.15;
 
       if(spawnPowerup) {
-        // Powerup spawn
         const powerupType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
         const powerup = document.createElement('div');
         powerup.classList.add('powerup', powerupType.name);
@@ -347,7 +378,6 @@
         game.appendChild(powerup);
         powerups.push(powerup);
       } else {
-        // Normal fruit spawn
         const fruitType = fruitTypes[Math.floor(Math.random() * fruitTypes.length)];
         const fruit = document.createElement('div');
         fruit.classList.add('fruit', fruitType.name);
@@ -363,15 +393,13 @@
     }
 
     function updateItems() {
-      if(gameOver || paused) return;
+      if(gameOver || paused || isVideoPlaying) return;
 
-      // Move and check collision for fruits
       for(let i = fruits.length -1; i >= 0; i--) {
         let fruit = fruits[i];
         fruit.y += fruit.speed;
         fruit.style.top = fruit.y + 'px';
 
-        // collision check
         if(fruit.y + fruit.clientHeight >= gameHeight - basket.clientHeight - 20 &&
            fruit.x + fruit.clientWidth > basketX - basket.clientWidth/2 &&
            fruit.x < basketX + basket.clientWidth/2) {
@@ -383,12 +411,15 @@
           fruit.remove();
           fruits.splice(i, 1);
 
-          // Level up every 15 points
-          if(score > 0 && score % 15 === 0) {
+          // Play video at score 10
+          if(score >= 10 && !isVideoPlaying) {
+            playVideo();
+          }
+
+          if(score > 0 && score % 15 === 0 && !isVideoPlaying) {
             level++;
             levelEl.textContent = level;
             speed = Math.min(maxSpeed, speed + 0.5);
-            // Faster spawn
             spawnInterval = Math.max(600, spawnInterval - 120);
             clearInterval(spawnTimer);
             spawnTimer = setInterval(createFruit, spawnInterval);
@@ -406,7 +437,6 @@
         powerup.y += powerup.speed;
         powerup.style.top = powerup.y + 'px';
 
-        // collision check
         if(powerup.y + powerup.clientHeight >= gameHeight - basket.clientHeight - 20 &&
            powerup.x + powerup.clientWidth > basketX - basket.clientWidth/2 &&
            powerup.x < basketX + basket.clientWidth/2) {
@@ -419,6 +449,36 @@
         }
       }
     }
+
+    // Video and game control
+    function playVideo() {
+      isVideoPlaying = true;
+      videoOverlay.style.display = 'flex';
+
+      // Pause spawning fruits and game loop
+      clearInterval(spawnTimer);
+
+      gameVideo.currentTime = 0;
+      gameVideo.play();
+    }
+
+    gameVideo.addEventListener('ended', () => {
+      stopVideo();
+    });
+
+    function stopVideo() {
+      isVideoPlaying = false;
+      videoOverlay.style.display = 'none';
+      gameVideo.pause();
+      gameVideo.currentTime = 0;
+      if (!gameOver && !paused) {
+        spawnTimer = setInterval(createFruit, spawnInterval);
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    // Allow clicking video to skip
+    gameVideo.addEventListener('click', stopVideo);
 
     function endGame() {
       gameOver = true;
@@ -444,8 +504,8 @@
       message.style.display = 'none';
       gameOver = false;
       paused = false;
+      isVideoPlaying = false;
 
-      // Remove all fruits and powerups
       fruits.forEach(f => f.remove());
       fruits = [];
       powerups.forEach(p => p.remove());
@@ -465,14 +525,15 @@
         message.style.display = 'block';
         pauseBtn.textContent = 'Resume';
         pauseBtn.setAttribute('aria-pressed', 'true');
+        clearInterval(spawnTimer);
       } else {
         message.style.display = 'none';
         pauseBtn.textContent = 'Pause';
         pauseBtn.setAttribute('aria-pressed', 'false');
+        spawnTimer = setInterval(createFruit, spawnInterval);
         requestAnimationFrame(gameLoop);
       }
     }
-
     pauseBtn.addEventListener('click', togglePause);
 
     // Restart on click in message restart text
@@ -487,7 +548,7 @@
 
     // Game loop
     function gameLoop() {
-      if(!gameOver && !paused) {
+      if(!gameOver && !paused && !isVideoPlaying) {
         updateItems();
         requestAnimationFrame(gameLoop);
       }
@@ -499,6 +560,7 @@
       // Auto-play may be restricted, user can unmute manually
     });
     requestAnimationFrame(gameLoop);
+
   })();
 </script>
 
